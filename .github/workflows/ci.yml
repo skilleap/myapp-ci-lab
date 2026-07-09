@@ -1,0 +1,108 @@
+# ------------------------------------------------------------
+# GitHub Actions Workflow
+# Purpose:
+# Build a Docker image, scan it for vulnerabilities,
+# and push it to GitHub Container Registry (GHCR).
+# ------------------------------------------------------------
+
+name: CI Pipeline
+
+# Trigger the workflow whenever code is pushed to the specified branch.
+on:
+  push:
+    branches:
+      - main
+
+# Grant the workflow permission to:
+# - Read the repository contents
+# - Publish packages (Docker images) to GHCR
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+
+  # ----------------------------------------------------------
+  # Single job that performs the complete CI pipeline
+  # ----------------------------------------------------------
+  build-scan-push:
+
+    # Use the latest Ubuntu virtual machine provided by GitHub
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # ------------------------------------------------------
+      # STEP 1 - Checkout the source code
+      #
+      # Downloads the repository contents from GitHub
+      # to the GitHub Actions runner.
+      #
+      # Without this step, Docker cannot find the Dockerfile
+      # or application files.
+      # ------------------------------------------------------
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------
+      # STEP 2 - Build the Docker image
+      #
+      # Builds the Docker image using the Dockerfile
+      # located in the repository root.
+      #
+      # Image format:
+      # ghcr.io/<github-username>/myapp:<git-sha>
+      #
+      # The Git SHA uniquely identifies the image and
+      # links it to the exact source code commit.
+      # ------------------------------------------------------
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t ghcr.io/${{ github.repository_owner }}/myapp:${{ github.sha }} .
+
+      # ------------------------------------------------------
+      # STEP 3 - Scan the Docker image
+      #
+      # Trivy scans the image for known security
+      # vulnerabilities (CVEs).
+      #
+      # If a CRITICAL vulnerability is found,
+      # exit-code: 1 causes the workflow to fail,
+      # preventing the image from being published.
+      # ------------------------------------------------------
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ghcr.io/${{ github.repository_owner }}/myapp:${{ github.sha }}
+          severity: CRITICAL
+          exit-code: 1
+
+      # ------------------------------------------------------
+      # STEP 4 - Login to GitHub Container Registry (GHCR)
+      #
+      # Authenticates Docker with GitHub Container Registry.
+      #
+      # GitHub automatically provides GITHUB_TOKEN,
+      # so no Personal Access Token (PAT) or Docker Hub
+      # credentials are required.
+      # ------------------------------------------------------
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ------------------------------------------------------
+      # STEP 5 - Push the Docker image
+      #
+      # Uploads the image to GitHub Container Registry.
+      #
+      # This step executes only if all previous steps
+      # complete successfully.
+      # ------------------------------------------------------
+      - name: Push image
+        run: |
+          docker push \
+            ghcr.io/${{ github.repository_owner }}/myapp:${{ github.sha }}
